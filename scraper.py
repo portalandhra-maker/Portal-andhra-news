@@ -1,94 +1,86 @@
-async def rewrite_with_crawl4ai(raw_title, raw_content, default_cat):
-    """Crawl4AI LLMExtractionStrategy ద్వారా సొంత తెలుగులో రీరైట్ చేయడం"""
-    prompt = build_rewrite_prompt(raw_title, raw_content, default_cat)
+import os
+import re
+import json
+import time
+import html
+import asyncio
+import urllib.request
+import urllib.parse
+from difflib import SequenceMatcher
+from datetime import datetime, timezone, timedelta
+from crawl4ai import AsyncWebCrawler
 
-    try:
-        from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, LLMConfig
-        from crawl4ai.extraction_strategy import LLMExtractionStrategy
+DATA_FILE = "data/news.json"
 
-        provider = CRAWL4AI_LLM_PROVIDER or (
-            "xai/" + GROK_MODEL if XAI_API_KEY else (
-                "gemini/" + GEMINI_MODEL if GEMINI_API_KEY else ""
-            )
-        )
-        api_key = CRAWL4AI_LLM_API_KEY or XAI_API_KEY or GEMINI_API_KEY
+JINA_API_KEY = os.environ.get("JINA_API_KEY", "").strip()
+CRAWL4AI_LLM_PROVIDER = os.environ.get("CRAWL4AI_LLM_PROVIDER", "").strip()
+CRAWL4AI_LLM_API_KEY = os.environ.get("CRAWL4AI_LLM_API_KEY", "").strip()
 
-        if not provider:
-            return None
+MAX_AGE_DAYS = 15
+MAX_NEW_ITEMS_PER_RUN = 3
+MAX_LINKS_PER_PAGE = 5
+REQUEST_TIMEOUT = 25
 
-        llm_cfg = LLMConfig(provider=provider, api_token=api_key or None)
-        strategy = LLMExtractionStrategy(
-            llm_config=llm_cfg,
-            instruction=prompt,
-            extraction_type="text",
-            apply_chunking=False
-        )
-        run_cfg = CrawlerRunConfig(extraction_strategy=strategy)
+IST = timezone(timedelta(hours=5, minutes=30))
 
-        # Crawl4AI కి నేరుగా raw: prefixed HTML ఇవ్వడం
-        raw_html_input = f"raw:<html><body><article><p>{html.escape(raw_content[:1800])}</p></article></body></html>"
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "te-IN,te;q=0.9,en-US;q=0.8,en;q=0.7"
+}
 
-        async with AsyncWebCrawler() as crawler:
-            res = await crawler.arun(url=raw_html_input, config=run_cfg)
-            if res and res.success and res.extracted_content:
-                parsed = parse_json_loose(res.extracted_content)
-                if isinstance(parsed, list) and parsed:
-                    parsed = parsed[0]
-                if isinstance(parsed, dict) and parsed.get("title") and parsed.get("content"):
-                    return parsed
-    except Exception as e:
-        print(f"Crawl4AI rewrite fallback: {e}")
+BLOCKED_KEYWORDS = [
+    "murder", "suicide", "rape", "porn", "sex",
+    "betting", "casino", "gambling",
+    "ushodaya", "prosecuted", "georgia-fulton",
+    "హత్య", "ఆత్మహత్య", "బెట్టింగ్", "జూదం", "అశ్లీల"
+]
 
-    # Direct Grok / Gemini API fallback
-    if XAI_API_KEY:
-        try:
-            payload = json.dumps({
-                "model": GROK_MODEL,
-                "messages": [
-                    {"role": "system", "content": "You are a helpful Telugu news editor returning valid JSON only."},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.5
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                "https://api.x.ai/v1/chat/completions",
-                data=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {XAI_API_KEY}",
-                    "User-Agent": "Mozilla/5.0"
-                },
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                parsed = parse_json_loose(data["choices"][0]["message"]["content"])
-                if parsed and parsed.get("title") and parsed.get("content"):
-                    return parsed
-        except Exception as e:
-            print(f"Grok rewrite failed: {e}")
+BAD_IMAGE_PATTERNS = [
+    "logo", "icon", "favicon", "avatar", "sprite", "badge", "button",
+    "banner", "advert", "ad-", "ads", "doubleclick", "googlesyndication",
+    "facebook.com/tr", "pixel", "tracker", "spacer", "blank", "placeholder",
+    "default-thumb", "no-image", "author", "profile", "whatsapp", "twitter",
+    "youtube.com", "play-store", "app-store", "svg"
+]
 
-    if GEMINI_API_KEY:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.5, "responseMimeType": "application/json"}
-        }).encode("utf-8")
-        for attempt in range(2):
-            try:
-                req = urllib.request.Request(
-                    url,
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    parsed = parse_json_loose(data["candidates"][0]["content"]["parts"][0]["text"])
-                    if parsed and parsed.get("title") and parsed.get("content"):
-                        return parsed
-            except Exception as e:
-                print(f"Gemini rewrite attempt {attempt + 1} failed: {e}")
-                time.sleep(15)
+VALID_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
-    return None
+DIRECT_WEBSITES = [
+    {
+        "url": "https://www.10tv.in/andhra-pradesh",
+        "source": "10TV",
+        "default_cat": "ఆంధ్రప్రదేశ్"
+    },
+    {
+        "url": "https://www.10tv.in/telangana",
+        "source": "10TV",
+        "default_cat": "తెలంగాణ"
+    },
+    {
+        "url": "https://www.ntvtelugu.com/category/andhra-pradesh",
+        "source": "NTV Telugu",
+        "default_cat": "ఆంధ్రప్రదేశ్"
+    },
+    {
+        "url": "https://www.ntvtelugu.com/category/telangana",
+        "source": "NTV Telugu",
+        "default_cat": "తెలంగాణ"
+    },
+    {
+        "url": "https://www.tv9telugu.com/movies",
+        "source": "TV9 Telugu",
+        "default_cat": "సినిమా"
+    }
+]
+
+CATEGORY_RULES = {
+    "ఆంధ్రప్రదేశ్": [
+        "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఏపీ",
+        "అమరావతి", "విజయవాడ", "గుంటూరు",
+        "విశాఖపట్నం", "విశాఖ", "తిరుపతి",
+        "కర్నూలు", "కడప", "నెల్లూరు",
+        "పల్నాడు", "ప్ర
