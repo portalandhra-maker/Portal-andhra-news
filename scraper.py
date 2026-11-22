@@ -11,6 +11,8 @@ from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone, timedelta
 
 DATA_FILE = "data/news.json"
+JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
+
 MAX_AGE_DAYS = 15
 MAX_NEW_ITEMS_PER_RUN = 5
 MAX_ITEMS_PER_FEED = 6
@@ -25,7 +27,13 @@ BLOCKED_KEYWORDS = [
     "హత్య", "ఆత్మహత్య", "బెట్టింగ్", "జూదం", "అశ్లీల"
 ]
 
+# Web scraping (Jina) కి అనుకూలమైన సోర్సుల RSS ఫీడ్స్
 RSS_FEEDS = [
+    {
+        "url": "https://news.google.com/rss/search?q=site:10tv.in+when:1d&hl=te&gl=IN&ceid=IN:te",
+        "source": "10TV",
+        "default_cat": "ఆంధ్రప్రదేశ్"
+    },
     {
         "url": "https://news.google.com/rss/search?q=site:ntvtelugu.com+when:1d&hl=te&gl=IN&ceid=IN:te",
         "source": "NTV Telugu",
@@ -45,11 +53,6 @@ RSS_FEEDS = [
         "url": "https://news.google.com/rss/search?q=site:sakshi.com+when:1d&hl=te&gl=IN&ceid=IN:te",
         "source": "Sakshi",
         "default_cat": "తెలంగాణ"
-    },
-    {
-        "url": "https://news.google.com/rss/search?q=site:10tv.in+when:1d&hl=te&gl=IN&ceid=IN:te",
-        "source": "10TV",
-        "default_cat": "ఇతర వార్తలు"
     }
 ]
 
@@ -224,6 +227,56 @@ def fetch_rss_items(feed):
     return items
 
 
+def scrape_content_via_jina(target_url):
+    """Jina Reader ద్వారా ఆర్టికల్ పూర్తి కంటెంట్ మరియు మొదటి ఇమేజ్ తీసుకోవడం"""
+    if not target_url:
+        return "", ""
+
+    jina_url = f"https://r.jina.ai/{target_url}"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "X-Return-Format": "markdown"
+    }
+    if JINA_API_KEY:
+        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+
+    try:
+        req = urllib.request.Request(jina_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            md_text = resp.read().decode("utf-8", errors="ignore")
+
+        if not md_text or not is_adsense_safe(md_text):
+            return "", ""
+
+        # మొదటి ఇమేజ్ URL (వీలైతే)
+        img_match = re.search(r"!\[[^\]]*\]\((https?://[^\s)]+)\)", md_text)
+        image_url = img_match.group(1) if img_match else ""
+        if image_url and any(bad in image_url.lower() for bad in ["logo", "icon", "avatar", "sprite", "ads"]):
+            image_url = ""
+
+        lines = [ln.strip() for ln in md_text.splitlines()]
+        clean_paragraphs = []
+        for ln in lines:
+            if (
+                len(ln) >= 50
+                and not ln.startswith("![")
+                and not ln.startswith("[")
+                and not ln.startswith("#")
+                and not ln.startswith("*")
+                and not ln.startswith("-")
+                and "http" not in ln
+            ):
+                clean_line = re.sub(r"\s+", " ", ln).strip()
+                clean_paragraphs.append(clean_line)
+
+        full_content = "\n\n".join(clean_paragraphs[:8])[:2500]
+        return full_content, image_url
+
+    except Exception as e:
+        print(f"Jina scrape error ({target_url}): {e}")
+        return "", ""
+
+
 def clean_old_news(items):
     cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
     kept = []
@@ -271,6 +324,7 @@ def main():
             title = entry["title"]
             description = entry["description"]
             link = entry["link"]
+            target_url = entry["original_url"] or link
 
             if len(title) < 15:
                 continue
@@ -281,16 +335,25 @@ def main():
             if entry["original_url"] and is_duplicate(news_list, title, entry["original_url"]):
                 continue
 
-            summary = description if len(description) > 30 else title
-            category = detect_category(title, description, feed["default_cat"])
+            scraped_body, image_url = scrape_content_via_jina(target_url)
+
+            if len(scraped_body) >= 120 and is_adsense_safe(scraped_body):
+                content = scraped_body
+                summary = scraped_body[:220].rsplit(" ", 1)[0] + "..."
+            else:
+                fallback = description if len(description) > 30 else title
+                content = fallback
+                summary = fallback[:220]
+
+            category = detect_category(title, f"{description} {content}", feed["default_cat"])
 
             news_list.insert(0, {
                 "id": f"{int(time.time())}_{added + 1}",
                 "title": title,
                 "category": category,
-                "summary": summary[:220],
-                "content": summary,
-                "image": "",
+                "summary": summary,
+                "content": content,
+                "image": image_url,
                 "sourceUrl": link,
                 "originalSourceUrl": entry["original_url"],
                 "sourceName": entry["source_name"],
@@ -299,7 +362,7 @@ def main():
                 "createdAt": datetime.now(timezone.utc).isoformat()
             })
             added += 1
-            time.sleep(0.5)
+            time.sleep(1)
 
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
