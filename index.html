@@ -7,7 +7,7 @@
 
 <title>Portal Andhra | మీ వార్తలు మీ ప్రగతి</title>
 
-<meta name="description" content="Portal Andhra - తాజా ఆంధ్రప్రదేశ్, తెలంగాణ, జాతీయ, రాజకీయ, సినిమా, క్రీడా వార్తలు.">
+<meta name="description" content="Portal Andhra - తాజా తెలుగు వార్తలు, ఆంధ్రప్రదేశ్, తెలంగాణ, జాతీయ, రాజకీయ, సినిమా, క్రీడా వార్తలు.">
 <meta name="theme-color" content="#14213D">
 
 <style>
@@ -64,6 +64,10 @@ header {
   gap: 15px;
 }
 
+.brand {
+  display: block;
+}
+
 .brand img {
   width: 340px;
   max-width: 100%;
@@ -77,13 +81,12 @@ header {
   font-weight: 700;
 }
 
-/* BREAKING TICKER */
+/* TICKER */
 
 .ticker {
   background: var(--primary);
   color: white;
   padding: 9px 15px;
-  overflow: hidden;
 }
 
 .ticker-inner {
@@ -373,7 +376,7 @@ main {
   padding-top: 9px;
 }
 
-/* EMPTY / LOADING */
+/* MESSAGES */
 
 .message {
   background: white;
@@ -509,10 +512,12 @@ footer {
   <div class="header-inner">
 
     <a class="brand" href="./index.html">
+
       <img
-        src="./assets/portal-andhra-logo.png"
+        src="./Portal%20Andhra%20News%20Branding.png"
         alt="Portal Andhra - మీ వార్తలు మీ ప్రగతి"
       >
+
     </a>
 
     <div class="header-tagline">
@@ -523,44 +528,59 @@ footer {
 </header>
 
 
-<!-- BREAKING NEWS -->
+<!-- NEWS TICKER -->
 
 <div class="ticker">
+
   <div class="ticker-inner">
 
-    <span class="ticker-label">LATEST</span>
+    <span class="ticker-label">LATEST NEWS</span>
 
     <div class="ticker-text" id="breaking-ticker">
       తాజా వార్తల కోసం వేచి ఉండండి...
     </div>
 
   </div>
+
 </div>
 
 
-<!-- CATEGORY NAVIGATION -->
+<!-- NAVIGATION -->
 
 <nav>
+
   <div class="nav-inner" id="category-bar">
 
     <button class="cat-btn active" data-cat="All">అన్నీ</button>
+
     <button class="cat-btn" data-cat="ఆంధ్రప్రదేశ్">ఆంధ్రప్రదేశ్</button>
+
     <button class="cat-btn" data-cat="తెలంగాణ">తెలంగాణ</button>
+
     <button class="cat-btn" data-cat="జాతీయ వార్తలు">జాతీయం</button>
+
     <button class="cat-btn" data-cat="రాజకీయాలు">రాజకీయాలు</button>
+
     <button class="cat-btn" data-cat="సినిమా">సినిమా</button>
+
     <button class="cat-btn" data-cat="క్రీడలు">క్రీడలు</button>
+
     <button class="cat-btn" data-cat="వ్యాపారం">బిజినెస్</button>
+
     <button class="cat-btn" data-cat="విద్య">విద్య</button>
+
     <button class="cat-btn" data-cat="సాంకేతికత">టెక్నాలజీ</button>
+
     <button class="cat-btn" data-cat="క్రైమ్">క్రైమ్</button>
+
     <button class="cat-btn" data-cat="ఇతర వార్తలు">ఇతర వార్తలు</button>
 
   </div>
+
 </nav>
 
 
-<!-- MAIN CONTENT -->
+<!-- MAIN -->
 
 <main>
 
@@ -580,30 +600,45 @@ footer {
   </div>
 
 
-  <!-- FEATURED + LATEST -->
+  <!-- FEATURED AND LATEST -->
 
   <section class="featured-layout">
 
     <div>
 
       <div class="section-heading">
+
         <h2>ముఖ్య వార్తలు</h2>
+
         <span>TOP STORIES</span>
+
       </div>
 
       <div id="featured-news">
-        <div class="message">వార్తలు లోడ్ అవుతున్నాయి...</div>
+
+        <div class="message">
+          వార్తలు లోడ్ అవుతున్నాయి...
+        </div>
+
       </div>
 
     </div>
 
 
+    <!-- LATEST SIDEBAR -->
+
     <aside class="latest-box">
 
-      <h2 class="latest-title">తాజా వార్తలు</h2>
+      <h2 class="latest-title">
+        తాజా వార్తలు
+      </h2>
 
       <div id="latest-news">
-        <div class="message">లోడ్ అవుతోంది...</div>
+
+        <div class="message">
+          లోడ్ అవుతోంది...
+        </div>
+
       </div>
 
     </aside>
@@ -616,13 +651,18 @@ footer {
   <section>
 
     <div class="section-heading">
+
       <h2 id="news-heading">తాజా వార్తలు</h2>
+
       <span id="news-count"></span>
+
     </div>
 
     <div class="news-grid" id="news-grid">
 
-      <div class="message">వార్తలు లోడ్ అవుతున్నాయి...</div>
+      <div class="message">
+        వార్తలు లోడ్ అవుతున్నాయి...
+      </div>
 
     </div>
 
@@ -642,11 +682,17 @@ footer {
     <p>మీ వార్తలు మీ ప్రగతి</p>
 
     <div class="footer-links">
+
       <a href="./index.html">Home</a>
+
       <a href="./about.html">About Us</a>
+
       <a href="./contact.html">Contact</a>
+
       <a href="./privacy-policy.html">Privacy Policy</a>
+
       <a href="./disclaimer.html">Disclaimer</a>
+
     </div>
 
     <p style="margin-top:20px;">
@@ -697,7 +743,7 @@ function safeImage(url) {
 }
 
 
-/* ARTICLE URL */
+/* ARTICLE LINK */
 
 function articleLink(item) {
 
@@ -707,7 +753,7 @@ function articleLink(item) {
 }
 
 
-/* CREATE TEXT ELEMENT */
+/* TEXT ELEMENT */
 
 function addText(parent, tag, value, className) {
 
@@ -738,8 +784,11 @@ function addImage(parent, url, alt, className) {
   img.loading = "lazy";
 
   img.onerror = function() {
+
     this.onerror = null;
+
     this.src = PLACEHOLDER;
+
   };
 
   if (className) {
@@ -761,7 +810,7 @@ function getDate(item) {
 }
 
 
-/* SEVEN DAY HOMEPAGE FILTER */
+/* 7 DAY HOMEPAGE FILTER */
 
 function filterRecentNews(items) {
 
@@ -795,12 +844,17 @@ function updateTicker() {
     document.getElementById("breaking-ticker");
 
   if (!allNews.length) {
+
     ticker.textContent = "ప్రస్తుతం వార్తలు లేవు.";
+
     return;
+
   }
 
   ticker.textContent =
-    allNews.slice(0, 5).map(item => item.title).join("  |  ");
+    allNews.slice(0, 5)
+      .map(item => item.title)
+      .join(" | ");
 
 }
 
@@ -824,6 +878,7 @@ function renderFeatured(news) {
     );
 
     return;
+
   }
 
   const item = news[0];
@@ -897,7 +952,7 @@ function renderFeatured(news) {
 }
 
 
-/* LATEST NEWS SIDEBAR */
+/* LATEST NEWS */
 
 function renderLatest(news) {
 
@@ -918,6 +973,7 @@ function renderLatest(news) {
     );
 
     return;
+
   }
 
   latest.forEach(item => {
@@ -991,6 +1047,7 @@ function renderNews(news) {
     );
 
     return;
+
   }
 
   news.forEach(item => {
@@ -1056,7 +1113,7 @@ function renderNews(news) {
 }
 
 
-/* CATEGORY + SEARCH FILTER */
+/* CATEGORY AND SEARCH */
 
 function applyFilters() {
 
@@ -1103,7 +1160,7 @@ function applyFilters() {
 }
 
 
-/* LOAD NEWS JSON */
+/* LOAD JSON */
 
 async function loadNews() {
 
@@ -1118,13 +1175,17 @@ async function loadNews() {
     );
 
     if (!response.ok) {
+
       throw new Error("HTTP " + response.status);
+
     }
 
     const data = await response.json();
 
     if (!Array.isArray(data)) {
+
       throw new Error("Invalid news JSON format");
+
     }
 
     allNews = filterRecentNews(data);
@@ -1151,7 +1212,7 @@ async function loadNews() {
 }
 
 
-/* CATEGORY BUTTONS */
+/* CATEGORY CLICK */
 
 document
   .getElementById("category-bar")
@@ -1203,7 +1264,7 @@ document
 loadNews();
 
 
-/* AUTO REFRESH - EVERY 5 MINUTES */
+/* AUTO REFRESH EVERY 5 MINUTES */
 
 setInterval(loadNews, 5 * 60 * 1000);
 
