@@ -2,8 +2,8 @@ name: Auto Scrape & Update News
 
 on:
   schedule:
-    - cron: "0 * * * *" # ప్రతి గంటకు ఆటోమేటిక్‌గా రన్ అవుతుంది
-  workflow_dispatch:    # మీరు ఎప్పుడైనా మాన్యువల్‌గా Run బటన్ నొక్కడానికి
+    - cron: "0 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,6 +26,7 @@ jobs:
       - name: Run news scraper
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
         run: python scraper.py
 
       - name: Commit & Push updated news.json
