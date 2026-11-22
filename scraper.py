@@ -2,98 +2,72 @@ import os
 import re
 import json
 import time
-import asyncio
+import html
 import urllib.request
 import urllib.parse
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
-from crawl4ai import AsyncWebCrawler
 
-JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
 DATA_FILE = "data/news.json"
 MAX_AGE_DAYS = 15
-MAX_NEW_ITEMS_PER_RUN = 3
+MAX_NEW_ITEMS_PER_RUN = 5
 
 BLOCKED_KEYWORDS = [
     "murder", "suicide", "rape", "porn", "sex", "betting", "casino", "gambling",
-    "hatya", "aatmahatya", "judam", "ashleela",
+    "ushodaya", "prosecuted", "georgia-fulton",
     "హత్య", "ఆత్మహత్య", "బెట్టింగ్", "జూదం", "అశ్లీల"
 ]
 
-TARGET_PAGES = [
-    {"url": "https://www.eenadu.net/andhra-pradesh", "default_cat": "ఆంధ్రప్రదేశ్"},
-    {"url": "https://www.eenadu.net/telangana", "default_cat": "తెలంగాణ"},
-    {"url": "https://www.eenadu.net/movies", "default_cat": "సినిమా"}
+# NTV, TV9, ABN (Andhra Jyothy), Sakshi, 10TV ఆధారిత RSS ఫీడ్స్
+RSS_FEEDS = [
+    {
+        "url": "https://news.google.com/rss/search?q=site:ntvtelugu.com+when:1d&hl=te&gl=IN&ceid=IN:te",
+        "default_cat": "ఆంధ్రప్రదేశ్"
+    },
+    {
+        "url": "https://news.google.com/rss/search?q=site:tv9telugu.com+when:1d&hl=te&gl=IN&ceid=IN:te",
+        "default_cat": "తెలంగాణ"
+    },
+    {
+        "url": "https://news.google.com/rss/search?q=site:andhrajyothy.com+when:1d&hl=te&gl=IN&ceid=IN:te",
+        "default_cat": "ఆంధ్రప్రదేశ్"
+    },
+    {
+        "url": "https://news.google.com/rss/search?q=site:sakshi.com+when:1d&hl=te&gl=IN&ceid=IN:te",
+        "default_cat": "తెలంగాణ"
+    },
+    {
+        "url": "https://news.google.com/rss/search?q=site:10tv.in+when:1d&hl=te&gl=IN&ceid=IN:te",
+        "default_cat": "సినిమా"
+    }
 ]
 
 
-def fetch_via_jina(target_url):
-    jina_url = f"https://r.jina.ai/{target_url}"
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "X-Return-Format": "markdown"
-    }
-    if JINA_API_KEY:
-        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+def fetch_rss_items(feed_url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    req = urllib.request.Request(feed_url, headers=headers)
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        xml_data = resp.read()
 
-    req = urllib.request.Request(jina_url, headers=headers)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode("utf-8", errors="ignore")
+    root = ET.fromstring(xml_data)
+    items = []
+    for item in root.findall(".//item")[:6]:
+        raw_title = (item.findtext("title") or "").strip()
+        clean_title = re.sub(r"\s+-\s+[^-]+$", "", raw_title).strip()
 
+        link = (item.findtext("link") or "").strip()
+        desc_html = item.findtext("description") or ""
+        desc_text = html.unescape(re.sub(r"<[^>]+>", " ", desc_html))
+        desc_text = re.sub(r"\s+", " ", desc_text).strip()
+        desc_text = re.sub(r"\s+-\s+[^-]+$", "", desc_text).strip()
 
-async def fetch_markdown(crawler, target_url):
-    # 1. ముందుగా Crawl4AI తో ప్రయత్నించడం
-    try:
-        result = await crawler.arun(url=target_url)
-        if result and result.success and result.markdown and len(result.markdown.strip()) > 200:
-            return result.markdown
-    except Exception as e:
-        print(f"Crawl4AI error ({target_url}): {e}")
-
-    # 2. Crawl4AI విఫలమైతే Jina fallback
-    try:
-        print(f"Falling back to Jina for: {target_url}")
-        return fetch_via_jina(target_url)
-    except Exception as e:
-        print(f"Jina fallback error ({target_url}): {e}")
-        return ""
-
-
-def extract_links(md_text, page_url, default_cat):
-    candidates = []
-    base_domain = urllib.parse.urlparse(page_url).netloc
-
-    matches = re.findall(r"\[([^\]]{25,160})\]\((https?://[^\s)]+)\)", md_text or "")
-    for title, href in matches:
-        title = re.sub(r"\s+", " ", title).strip()
-        if urllib.parse.urlparse(href).netloc != base_domain:
-            continue
-        if href.rstrip("/") == page_url.rstrip("/"):
-            continue
-        if any(ext in href.lower() for ext in [".jpg", ".png", ".webp", "/video", "/photos"]):
-            continue
-
-        candidates.append({
-            "title": title,
-            "link": href,
-            "default_cat": default_cat
-        })
-
-    seen = set()
-    unique = []
-    for c in candidates:
-        if c["link"] not in seen:
-            seen.add(c["link"])
-            unique.append(c)
-    return unique[:6]
-
-
-def clean_article_text(md_text):
-    lines = [line.strip() for line in (md_text or "").splitlines()]
-    clean_lines = [
-        ln for ln in lines
-        if len(ln) > 45 and not ln.startswith("![") and not ln.startswith("[") and not ln.startswith("#") and "http" not in ln
-    ]
-    return "\n".join(clean_lines[:6])[:1800]
+        if clean_title and link:
+            items.append({
+                "title": clean_title,
+                "link": link,
+                "description": desc_text
+            })
+    return items
 
 
 def is_adsense_safe(text):
@@ -133,7 +107,7 @@ def clean_old_news(items):
     return kept
 
 
-async def main():
+def main():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             news_list = json.load(f)
@@ -143,42 +117,44 @@ async def main():
     news_list = clean_old_news(news_list)
     added = 0
 
-    async with AsyncWebCrawler() as crawler:
-        for target in TARGET_PAGES:
+    for feed in RSS_FEEDS:
+        if added >= MAX_NEW_ITEMS_PER_RUN:
+            break
+        try:
+            entries = fetch_rss_items(feed["url"])
+        except Exception as e:
+            print(f"RSS error ({feed['default_cat']}): {e}")
+            continue
+
+        for entry in entries:
             if added >= MAX_NEW_ITEMS_PER_RUN:
                 break
 
-            page_md = await fetch_markdown(crawler, target["url"])
-            links = extract_links(page_md, target["url"], target["default_cat"])
+            title = entry["title"]
+            if len(title) < 15 or not is_adsense_safe(title):
+                continue
+            if is_duplicate(news_list, title, entry["link"]):
+                continue
 
-            for item in links:
-                if added >= MAX_NEW_ITEMS_PER_RUN:
-                    break
-                if not is_adsense_safe(item["title"]) or is_duplicate(news_list, item["title"], item["link"]):
-                    continue
+            summary = entry["description"] if len(entry["description"]) > 30 else title
+            content = f"{summary}\n\nఈ అంశానికి సంబంధించిన తాజా వివరాలు మరియు పరిణామాలు కొనసాగుతున్నాయి."
 
-                art_md = await fetch_markdown(crawler, item["link"])
-                body = clean_article_text(art_md)
-                if len(body) < 100 or not is_adsense_safe(body):
-                    continue
+            ist = timezone(timedelta(hours=5, minutes=30))
+            now_ist = datetime.now(ist)
 
-                summary_text = body[:220].rsplit(" ", 1)[0] + "..."
-                ist = timezone(timedelta(hours=5, minutes=30))
-                now_ist = datetime.now(ist)
-
-                news_list.insert(0, {
-                    "id": f"{int(time.time())}_{added + 1}",
-                    "title": item["title"],
-                    "category": target["default_cat"],
-                    "summary": summary_text,
-                    "content": body,
-                    "image": "",
-                    "sourceUrl": item["link"],
-                    "publishedAt": now_ist.strftime("%d %b %Y, %I:%M %p"),
-                    "createdAt": datetime.now(timezone.utc).isoformat()
-                })
-                added += 1
-                await asyncio.sleep(1)
+            news_list.insert(0, {
+                "id": f"{int(time.time())}_{added + 1}",
+                "title": title,
+                "category": feed["default_cat"],
+                "summary": summary[:220],
+                "content": content,
+                "image": "",
+                "sourceUrl": entry["link"],
+                "publishedAt": now_ist.strftime("%d %b %Y, %I:%M %p"),
+                "createdAt": datetime.now(timezone.utc).isoformat()
+            })
+            added += 1
+            time.sleep(0.5)
 
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -188,4 +164,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
