@@ -32,11 +32,20 @@ HEADERS = {
     "Accept-Language": "te-IN,te;q=0.9,en-US;q=0.8,en;q=0.7"
 }
 
+
+def b2s(hex_str):
+    return bytes.fromhex(hex_str).decode("utf-8")
+
+
 BLOCKED_KEYWORDS = [
     "murder", "suicide", "rape", "porn", "sex",
     "betting", "casino", "gambling",
     "ushodaya", "prosecuted", "georgia-fulton",
-    "హత్య", "ఆత్మహత్య", "బెట్టింగ్", "జూదం", "అశ్లీల"
+    b2s("e0b0b9e0b0a4e0b18d"),
+    b2s("e0b086e0b0a4e0b18de0b0aee0b0b9e0b0a4e0b18d"),
+    b2s("e0b0ace0b186e0b09fe0b18de0b09fe0b082e0b097"),
+    b2s("e0b09ce0b182e0b0a6e0b082"),
+    b2s("e0b085e0b0b6e0b18de0b0b2e0b180e0b0b2"),
 ]
 
 BAD_IMAGE_PATTERNS = [
@@ -50,19 +59,13 @@ BAD_IMAGE_PATTERNS = [
 VALID_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
 DIRECT_WEBSITES = [
-    {"url": "https://www.10tv.in/andhra-pradesh", "source": "10TV", "default_cat": "ఆంధ్రప్రదేశ్"},
-    {"url": "https://www.10tv.in/telangana", "source": "10TV", "default_cat": "తెలంగాణ"},
-    {"url": "https://www.ntvtelugu.com/category/andhra-pradesh", "source": "NTV Telugu", "default_cat": "ఆంధ్రప్రదేశ్"},
-    {"url": "https://www.ntvtelugu.com/category/telangana", "source": "NTV Telugu", "default_cat": "తెలంగాణ"},
-    {"url": "https://www.tv9telugu.com/movies", "source": "TV9 Telugu", "default_cat": "సినిమా"}
+    {"url": "https://www.10tv.in/andhra-pradesh", "source": "10TV", "default_cat": b2s("e0b086e0b082e0b0a7e0b18de0b0b0e0b0aae0b18de0b0aae0b18de0b0b0e0b0a6e0b187e0b0b6e0b18d")},
+    {"url": "https://www.10tv.in/telangana", "source": "10TV", "default_cat": b2s("e0b0a4e0b186e0b0b2e0b082e0b097e0b0a3")},
+    {"url": "https://www.ntvtelugu.com/category/andhra-pradesh", "source": "NTV Telugu", "default_cat": b2s("e0b086e0b082e0b0a7e0b18de0b0b0e0b0aae0b18de0b0aae0b18de0b0b0e0b0a6e0b187e0b0b6e0b18d")},
+    {"url": "https://www.ntvtelugu.com/category/telangana", "source": "NTV Telugu", "default_cat": b2s("e0b0a4e0b186e0b0b2e0b082e0b097e0b0a3")},
+    {"url": "https://www.tv9telugu.com/movies", "source": "TV9 Telugu", "default_cat": b2s("e0b0b8e0b0b3e0b0a8e0b0bfe0b0aee0b0be")},
 ]
 
 CATEGORY_RULES = {
-    "ఆంధ్రప్రదేశ్": ["ఆంధ్రప్రదేశ్", "ఏపీ", "అమరావతి", "విజయవాడ", "గుంటూరు", "విశాఖపట్నం", "తిరుపతి", "కర్నూలు", "నెల్లూరు"],
-    "తెలంగాణ": ["తెలంగాణ", "హైదరాబాద్", "వరంగల్", "కరీంనగర్", "ఖమ్మం", "నిజామాబాద్", "నల్గొండ"],
-    "జాతీయ వార్తలు": ["భారతదేశం", "దేశవ్యాప్తంగా", "న్యూఢిల్లీ", "లోక్ సభ", "ప్రధాని", "మోదీ", "సుప్రీంకోర్టు", "కేంద్ర ప్రభుత్వం"],
-    "రాజకీయాలు": ["ఎన్నికలు", "రాజకీయాలు", "పార్టీ", "ఎమ్మెల్యే", "ఎంపీ", "మంత్రి", "అసెంబ్లీ", "చంద్రబాబు", "జగన్", "రేవంత్", "పవన్"],
-    "సినిమా": ["సినిమా", "సినీ", "హీరో", "హీరోయిన్", "దర్శకుడు", "ట్రైలర్", "టీజర్", "టాలీవుడ్", "బాక్సాఫీస్", "మూవీ"],
-    "క్రీడలు": ["క్రికెట్", "ఫుట్‌బాల్", "కబడ్డీ", "ఐపీఎల్", "టీమిండియా", "ప్రపంచకప్", "మ్యాచ్"],
-    "వ్యాపారం": ["వ్యాపారం", "బిజినెస్", "స్టాక్ మార్కెట్", "సెన్సెక్స్", "నిఫ్టీ", "బంగారం", "బడ్జెట్", "బ్యాంక్"],
-    "విద్య": ["విద్యార్థులు", "పరీక్షలు", "ఫలితాలు", "ఇంటర్", "టెన్త్", "విద్యాశాఖ", "నోటిఫిక
+    b2s("e0b086e0b082e0b0a7e0b18de0b0b0e0b0aae0b18de0b0aae0b18de0b0b0e0b0a6e0b187e0b0b6e0b18d"): [
+        b2s("e0b086e0b082e0b0a7e0
