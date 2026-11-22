@@ -5,54 +5,55 @@ import time
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
-from bs4 import BeautifulSoup
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
 GEMINI_MODEL = "gemini-3.8-flash"
 DATA_FILE = "data/news.json"
 MAX_AGE_DAYS = 15
 MAX_NEW_ITEMS_PER_RUN = 3
 
-# AdSense పాలసీలకు విరుద్ధమైన పదాలు
 BLOCKED_KEYWORDS = [
     "murder", "suicide", "rape", "porn", "sex", "betting", "casino", "gambling",
+    "hatya", "aatmahatya", "betting", "judam", "ashleela",
     "హత్య", "ఆత్మహత్య", "బెట్టింగ్", "జూదం", "అశ్లీల"
 ]
 
-# మీరు స్క్రేప్ చేయాలనుకునే వెబ్‌సైట్ల పేజీ URLs
 TARGET_PAGES = [
     {"url": "https://www.eenadu.net/andhra-pradesh", "default_cat": "ఆంధ్రప్రదేశ్"},
     {"url": "https://www.eenadu.net/telangana", "default_cat": "తెలంగాణ"},
     {"url": "https://www.eenadu.net/movies", "default_cat": "సినిమా"}
 ]
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
 
+def fetch_via_jina(target_url):
+    jina_url = f"https://r.jina.ai/{target_url}"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "X-Return-Format": "markdown"
+    }
+    if JINA_API_KEY:
+        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
 
-def fetch_html(url):
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    req = urllib.request.Request(jina_url, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as resp:
         return resp.read().decode("utf-8", errors="ignore")
 
 
 def scrape_links(page_url, default_cat):
     candidates = []
     try:
-        html = fetch_html(page_url)
-        soup = BeautifulSoup(html, "html.parser")
+        md_text = fetch_via_jina(page_url)
         base_domain = urllib.parse.urlparse(page_url).netloc
 
-        for a in soup.find_all("a", href=True):
-            title = a.get_text(" ", strip=True)
-            href = urllib.parse.urljoin(page_url, a["href"])
-
-            if len(title) < 25 or len(title) > 160:
-                continue
+        matches = re.findall(r"\[([^\]]{25,160})\]\((https?://[^\s)]+)\)", md_text)
+        for title, href in matches:
+            title = re.sub(r"\s+", " ", title).strip()
             if urllib.parse.urlparse(href).netloc != base_domain:
                 continue
             if href.rstrip("/") == page_url.rstrip("/"):
+                continue
+            if any(ext in href.lower() for ext in [".jpg", ".png", ".webp", "/video", "/photos"]):
                 continue
 
             candidates.append({
@@ -61,9 +62,8 @@ def scrape_links(page_url, default_cat):
                 "default_cat": default_cat
             })
     except Exception as e:
-        print(f"Page scrape error ({page_url}): {e}")
+        print(f"Jina page scrape error ({page_url}): {e}")
 
-    # డూప్లికేట్ లింక్స్ తొలగించడం
     seen = set()
     unique = []
     for c in candidates:
@@ -75,13 +75,15 @@ def scrape_links(page_url, default_cat):
 
 def scrape_article_text(article_url):
     try:
-        html = fetch_html(article_url)
-        soup = BeautifulSoup(html, "html.parser")
-        paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
-        clean_paras = [p for p in paragraphs if len(p) > 40]
-        return "\n".join(clean_paras[:8])[:2500]
+        md_text = fetch_via_jina(article_url)
+        lines = [line.strip() for line in md_text.splitlines()]
+        clean_lines = [
+            ln for ln in lines
+            if len(ln) > 50 and not ln.startswith("![") and not ln.startswith("[") and "http" not in ln
+        ]
+        return "\n".join(clean_lines[:10])[:2800]
     except Exception as e:
-        print(f"Article fetch error ({article_url}): {e}")
+        print(f"Jina article fetch error ({article_url}): {e}")
         return ""
 
 
@@ -125,20 +127,20 @@ def clean_old_news(items):
 def rewrite_with_gemini(raw_title, raw_body, default_cat):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     prompt = f"""
-మీరు ఒక తెలుగు న్యూస్ పోర్టల్ (Portal Andhra) ఎడిటర్.
-కింది ముడి వార్త సమాచారం ఆధారంగా, ఏ వెబ్‌సైట్ నుండి కూడా నేరుగా కాపీ చేయకుండా, పూర్తిగా సొంత, సహజమైన తెలుగులో కొత్త వార్త రాయండి.
-గూగుల్ యాడ్‌సెన్స్ పాలసీలకు అనుగుణంగా నిష్పాక్షికంగా రాయండి.
+Meeru oka Telugu news portal (Portal Andhra) editor.
+Kindi mudi vartha samacharam aadharamga, e website nundi kuda neruga copy cheyakunda, purthiga sontha, sahajamaina Telugulo kotha vartha rayandi.
+Google AdSense policies ki anugunamga nishpakshika ga rayandi.
 
-ముడి శీర్షిక: {raw_title}
-సమాచారం: {raw_body}
-విభాగాలు: ఆంధ్రప్రదేశ్, తెలంగాణ, సినిమా, క్రీడలు, బిజినెస్ (డిఫాల్ట్: {default_cat})
+Mudi title: {raw_title}
+Samacharam: {raw_body}
+Categories: ఆంధ్రప్రదేశ్, తెలంగాణ, సినిమా, క్రీడలు, బిజినెస్ (Default: {default_cat})
 
-JSON ఫార్మాట్‌లో మాత్రమే సమాధానం ఇవ్వండి:
+JSON format lo matrame samadhanam ivvandi:
 {{
-  "title": "సొంత తెలుగు శీర్షిక",
-  "category": "విభాగం పేరు",
-  "summary": "2 వాక్యాల సారాంశం",
-  "content": "3 నుండి 4 పేరాల పూర్తి వార్త కథనం (పేరాల మధ్య \\n వాడండి)"
+  "title": "Sontha Telugu title",
+  "category": "Category peru",
+  "summary": "2 vakyala summary",
+  "content": "3 nundi 4 parala purthi vartha kathanam (parala madhya \\n vadandi)"
 }}
 """
     payload = json.dumps({
