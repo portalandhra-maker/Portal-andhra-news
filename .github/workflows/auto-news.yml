@@ -20,12 +20,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install beautifulsoup4
+      - name: Install Crawl4AI & dependencies
+        run: |
+          pip install crawl4ai beautifulsoup4
+          crawl4ai-setup
 
       - name: Run news scraper
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
         run: python scraper.py
 
