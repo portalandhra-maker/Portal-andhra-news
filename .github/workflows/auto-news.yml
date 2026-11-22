@@ -20,14 +20,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Crawl4AI & dependencies
+      - name: Install dependencies
         run: |
           pip install crawl4ai beautifulsoup4
           crawl4ai-setup
 
       - name: Run news scraper
         env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+          CRAWL4AI_LLM_PROVIDER: ${{ secrets.CRAWL4AI_LLM_PROVIDER }}
+          CRAWL4AI_LLM_API_KEY: ${{ secrets.CRAWL4AI_LLM_API_KEY }}
         run: python scraper.py
 
       - name: Commit & Push updated news.json
