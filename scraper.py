@@ -15,7 +15,7 @@ from crawl4ai import AsyncWebCrawler
 
 
 # ==========================================
-# CONFIGURATION
+# PORTAL ANDHRA CONFIGURATION
 # ==========================================
 
 DATA_FILE = "data/news.json"
@@ -57,7 +57,9 @@ BAD_IMAGE_PATTERNS = [
     "twitter", "youtube.com", "play-store", "svg"
 ]
 
-VALID_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+VALID_IMAGE_EXTS = (
+    ".jpg", ".jpeg", ".png", ".webp", ".avif"
+)
 
 
 # ==========================================
@@ -158,7 +160,7 @@ CATEGORY_RULES = {
 
 
 # ==========================================
-# SAFE JSON LOADING
+# LOAD NEWS JSON SAFELY
 # ==========================================
 
 def load_news():
@@ -170,7 +172,7 @@ def load_news():
         return []
 
     if os.path.getsize(DATA_FILE) == 0:
-        print("News JSON is empty. Starting new list.")
+        print("News JSON is empty.")
         return []
 
     try:
@@ -181,11 +183,10 @@ def load_news():
         if not isinstance(data, list):
             raise ValueError("News JSON must contain a list.")
 
-        valid_news = []
-
-        for item in data:
-            if isinstance(item, dict) and item.get("title"):
-                valid_news.append(item)
+        valid_news = [
+            item for item in data
+            if isinstance(item, dict) and item.get("title")
+        ]
 
         print(f"Loaded {len(valid_news)} existing news articles.")
 
@@ -204,13 +205,11 @@ def load_news():
 
         print(f"Backup created: {backup_file}")
 
-        print("Starting with an empty news list.")
-
         return []
 
 
 # ==========================================
-# SAFE JSON SAVING
+# SAVE NEWS JSON SAFELY
 # ==========================================
 
 def save_news(news_list):
@@ -233,7 +232,6 @@ def save_news(news_list):
             f.flush()
             os.fsync(f.fileno())
 
-        # Validate newly generated JSON before replacing
         with open(temp_file, "r", encoding="utf-8") as f:
             json.load(f)
 
@@ -252,7 +250,7 @@ def save_news(news_list):
 
 
 # ==========================================
-# ADSENSE SAFETY
+# ADSENSE SAFETY FILTER
 # ==========================================
 
 def is_adsense_safe(text):
@@ -275,32 +273,32 @@ def is_adsense_safe(text):
 
 
 # ==========================================
-# IMAGE URL CLEANING
+# IMAGE URL CLEANER
 # ==========================================
 
-def clean_image_url(raw_url, base_url=""):
+def clean_image_url(raw_url, base_url="", trusted=False):
 
     if not raw_url:
         return ""
 
-    url = html.unescape(raw_url.strip()).strip("\"'()<>")
+    url = html.unescape(
+        str(raw_url).strip()
+    ).strip("\"'()<>")
 
     if not url or url.startswith("data:"):
         return ""
 
-    if url.startswith("//"):
-        url = "https:" + url
-
-    elif base_url and url.startswith("/"):
-        url = urllib.parse.urljoin(base_url, url)
+    url = urllib.parse.urljoin(base_url, url)
 
     try:
         parsed = urllib.parse.urlparse(url)
-
     except Exception:
         return ""
 
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    if parsed.scheme not in ("http", "https"):
+        return ""
+
+    if not parsed.netloc:
         return ""
 
     lower_full = url.lower()
@@ -309,8 +307,11 @@ def clean_image_url(raw_url, base_url=""):
     if any(pat in lower_full for pat in BAD_IMAGE_PATTERNS):
         return ""
 
+    if lower_path.endswith(".svg"):
+        return ""
+
     dim_match = re.search(
-        r"(?:^|[^a-z0-9])(\d{1,3})x(\d{1,3})(?:[^a-z0-9]|$)",
+        r"(\d{1,4})x(\d{1,4})",
         lower_path
     )
 
@@ -324,54 +325,156 @@ def clean_image_url(raw_url, base_url=""):
 
     qs = urllib.parse.parse_qs(parsed.query)
 
-    for w_key in ("w", "width"):
+    for key in ("w", "width"):
 
-        if w_key in qs:
+        if key in qs:
 
             try:
 
-                val = int(
-                    re.sub(r"\D", "", qs[w_key][0]) or 0
+                width = int(
+                    re.sub(r"\D", "", qs[key][0]) or 0
                 )
 
-                if val < 180:
+                if 0 < width < 180:
                     return ""
 
             except Exception:
                 pass
 
-    has_valid_ext = lower_path.endswith(VALID_IMAGE_EXTS)
+    has_extension = lower_path.endswith(VALID_IMAGE_EXTS)
 
-    img_paths = [
-        "/image", "/images", "/img", "/photo",
-        "/photos", "/media", "/upload", "/thumb"
-    ]
-
-    looks_like_img = any(k in lower_path for k in img_paths)
-
-    if not (has_valid_ext or looks_like_img):
-        return ""
-
-    drop_keys = {
-        "t", "ts", "v", "ver", "cache",
-        "utm_source", "utm_medium", "utm_campaign"
-    }
-
-    clean_qs = [
-        (k, v)
-        for k, v in urllib.parse.parse_qsl(
-            parsed.query,
-            keep_blank_values=False
+    image_path = any(
+        word in lower_path
+        for word in (
+            "/image", "/images", "/img", "/photo",
+            "/photos", "/media", "/upload",
+            "/uploads", "/thumbnail"
         )
-        if k.lower() not in drop_keys
-    ]
-
-    cleaned = parsed._replace(
-        query=urllib.parse.urlencode(clean_qs),
-        fragment=""
     )
 
-    return urllib.parse.urlunparse(cleaned)
+    image_query = any(
+        key.lower() in ("format", "fm", "fit", "auto", "image")
+        for key in qs
+    )
+
+    if not (
+        trusted or has_extension or image_path or image_query
+    ):
+        return ""
+
+    return parsed._replace(fragment="").geturl()
+
+
+# ==========================================
+# EXTRACT IMAGE FROM ORIGINAL HTML
+# ==========================================
+
+def extract_image_from_html(raw_html, article_url):
+
+    if not raw_html:
+        return ""
+
+    candidates = []
+
+    # OPEN GRAPH AND TWITTER IMAGES
+
+    meta_tags = re.findall(
+        r"<meta\b[^>]*>",
+        raw_html,
+        flags=re.I
+    )
+
+    for tag in meta_tags:
+
+        attrs = {}
+
+        for key, value in re.findall(
+            r'([\w:-]+)\s*=\s*["\']([^"\']*)["\']',
+            tag,
+            flags=re.I
+        ):
+
+            attrs[key.lower()] = html.unescape(value)
+
+        prop = (
+            attrs.get("property", "")
+            or attrs.get("name", "")
+        ).lower()
+
+        if prop in (
+            "og:image",
+            "og:image:url",
+            "twitter:image",
+            "twitter:image:src"
+        ):
+
+            img = clean_image_url(
+                attrs.get("content", ""),
+                article_url,
+                trusted=True
+            )
+
+            if img:
+                candidates.append(img)
+
+    if candidates:
+        return candidates[0]
+
+    # HTML IMAGE TAGS
+
+    img_tags = re.findall(
+        r"<img\b[^>]*>",
+        raw_html,
+        flags=re.I
+    )
+
+    for tag in img_tags:
+
+        attrs = {}
+
+        for key, value in re.findall(
+            r'([\w:-]+)\s*=\s*["\']([^"\']*)["\']',
+            tag,
+            flags=re.I
+        ):
+
+            attrs[key.lower()] = html.unescape(value)
+
+        for key in (
+            "data-src",
+            "data-original",
+            "data-lazy-src",
+            "data-image",
+            "src",
+            "srcset",
+            "data-srcset"
+        ):
+
+            value = attrs.get(key, "")
+
+            if not value:
+                continue
+
+            if "srcset" in key:
+
+                entries = [
+                    x.strip().split()[0]
+                    for x in value.split(",")
+                    if x.strip()
+                ]
+
+                value = entries[-1] if entries else ""
+
+            img = clean_image_url(
+                value,
+                article_url,
+                trusted=True
+            )
+
+            if img:
+                return img
+
+    return ""
 
 
 # ==========================================
@@ -418,7 +521,7 @@ def read_via_jina(url):
 
 
 # ==========================================
-# HTML FALLBACK
+# ORIGINAL HTML FALLBACK
 # ==========================================
 
 def fetch_html_fallback(url):
@@ -507,6 +610,8 @@ def extract_links_from_jina(section_url):
                     "url": href
                 })
 
+    # HTML FALLBACK
+
     if not candidates:
 
         raw_html = fetch_html_fallback(section_url)
@@ -532,6 +637,9 @@ def extract_links_from_jina(section_url):
                     continue
 
                 if full_url.rstrip("/") == section_url.rstrip("/"):
+                    continue
+
+                if should_skip_link(full_url):
                     continue
 
                 parts = [
@@ -577,7 +685,7 @@ def extract_links_from_jina(section_url):
 
 
 # ==========================================
-# READ ARTICLE
+# READ ARTICLE + IMAGE EXTRACTION
 # ==========================================
 
 def read_article_via_jina(article_url, fallback_title):
@@ -605,19 +713,23 @@ def read_article_via_jina(article_url, fallback_title):
             if len(h1_txt) >= 15:
                 title = h1_txt
 
-        img_pat = r"!\[[^\]]*\]\(([^\s)]+)"
+        # MARKDOWN IMAGE
+
+        img_pat = r"!\[[^\]]*\]\(([^)\s]+)"
 
         for raw_img in re.findall(img_pat, md_text):
 
             cleaned = clean_image_url(
                 raw_img,
-                article_url
+                article_url,
+                trusted=True
             )
 
             if cleaned:
-
                 image_url = cleaned
                 break
+
+        # ARTICLE PARAGRAPHS
 
         skip_prefix = ("![", "[", "#", "*", "-", ">")
 
@@ -638,13 +750,35 @@ def read_article_via_jina(article_url, fallback_title):
 
             paragraphs.append(s)
 
+    # ORIGINAL WEBSITE IMAGE FALLBACK
+
+    if not image_url:
+
+        try:
+
+            raw_html = fetch_html_fallback(article_url)
+
+            image_url = extract_image_from_html(
+                raw_html,
+                article_url
+            )
+
+        except Exception as e:
+
+            print(f"Image extraction error: {e}")
+
     content = "\n\n".join(paragraphs[:8])[:2500]
+
+    print(
+        "IMAGE FOUND:",
+        image_url if image_url else "NO IMAGE FOUND"
+    )
 
     return title, content, image_url
 
 
 # ==========================================
-# REWRITE PROMPT
+# AI REWRITE PROMPT
 # ==========================================
 
 def build_rewrite_prompt(raw_title, raw_content, default_cat):
@@ -662,7 +796,7 @@ def build_rewrite_prompt(raw_title, raw_content, default_cat):
 
 
 # ==========================================
-# PARSE JSON RESPONSE
+# PARSE AI JSON
 # ==========================================
 
 def parse_json_loose(text):
@@ -678,7 +812,6 @@ def parse_json_loose(text):
     ).strip()
 
     try:
-
         return json.loads(cleaned)
 
     except Exception:
@@ -701,7 +834,7 @@ def parse_json_loose(text):
 
 
 # ==========================================
-# CRAWL4AI REWRITE
+# CRAWL4AI AI REWRITE
 # ==========================================
 
 async def rewrite_with_crawl4ai(
@@ -911,8 +1044,6 @@ async def main():
     print("PORTAL ANDHRA NEWS SCRAPER")
     print("=" * 50)
 
-    # LOAD EXISTING NEWS
-
     news_list = load_news()
 
     old_total = len(news_list)
@@ -922,11 +1053,6 @@ async def main():
     removed = old_total - len(news_list)
 
     added = 0
-
-    print(f"Existing news: {len(news_list)}")
-    print(f"Old news removed: {removed}")
-
-    # SCRAPE WEBSITES
 
     async with AsyncWebCrawler() as crawler:
 
@@ -984,8 +1110,6 @@ async def main():
                     if not is_adsense_safe(
                         f"{title} {raw_content}"
                     ):
-
-                        print("Filtered article skipped.")
                         continue
 
                     # AI REWRITE
@@ -1051,7 +1175,7 @@ async def main():
                             site["default_cat"]
                         )
 
-                    # FINAL CONTENT FILTER
+                    # FINAL SAFETY CHECK
 
                     combo = (
                         f"{final_title} "
@@ -1069,7 +1193,7 @@ async def main():
                     ):
                         continue
 
-                    # CREATE NEWS OBJECT
+                    # CREATE NEWS
 
                     now_ist = datetime.now(IST)
 
@@ -1095,8 +1219,14 @@ async def main():
                     added += 1
 
                     print("SUCCESS:", final_title)
+                    print("IMAGE:", image_url or "NO IMAGE")
                     print("Category:", final_cat)
                     print("Total added:", added)
+
+                    # SAVE AFTER EACH NEW ARTICLE
+                    # This protects newly collected news.
+
+                    save_news(news_list)
 
                     await asyncio.sleep(1)
 
@@ -1109,11 +1239,9 @@ async def main():
 
                     continue
 
-    # SAVE NEWS
+    # FINAL SAVE
 
     save_news(news_list)
-
-    # FINAL REPORT
 
     print("\n" + "=" * 50)
     print("SCRAPER COMPLETED")
