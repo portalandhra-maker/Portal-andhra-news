@@ -40,72 +40,21 @@ BAD_IMAGE_PATTERNS = [
     "twitter", "youtube.com", "play-store", "svg"
 ]
 
-VALID_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".avif")
-
 # ==========================================
 # NEWS SOURCES (Sakshi, NTV, TV9, V6, 10TV)
 # ==========================================
 
 DIRECT_WEBSITES = [
-    # --- SAKSHI ---
-    {
-        "url": "https://sakshi.com",
-        "source": "Sakshi",
-        "default_cat": "ఆంధ్రప్రదేశ్"
-    },
-    {
-        "url": "https://sakshi.com",
-        "source": "Sakshi",
-        "default_cat": "తెలంగాణ"
-    },
-
-    # --- NTV TELUGU ---
-    {
-        "url": "https://ntvtelugu.com",
-        "source": "NTV Telugu",
-        "default_cat": "ఆంధ్రప్రదేశ్"
-    },
-    {
-        "url": "https://ntvtelugu.com",
-        "source": "NTV Telugu",
-        "default_cat": "తెలంగాణ"
-    },
-
-    # --- TV9 TELUGU ---
-    {
-        "url": "https://tv9telugu.com",
-        "source": "TV9 Telugu",
-        "default_cat": "ఆంధ్రప్రదేశ్"
-    },
-    {
-        "url": "https://tv9telugu.com",
-        "source": "TV9 Telugu",
-        "default_cat": "తెలంగాణ"
-    },
-
-    # --- V6 VELUGU ---
-    {
-        "url": "https://v6velugu.com",
-        "source": "V6 Velugu",
-        "default_cat": "తెలంగాణ"
-    },
-    {
-        "url": "https://v6velugu.com",
-        "source": "V6 Velugu",
-        "default_cat": "ఆంధ్రప్రదేశ్"
-    },
-
-    # --- 10TV ---
-    {
-        "url": "https://10tv.in",
-        "source": "10TV",
-        "default_cat": "ఆంధ్రప్రదేశ్"
-    },
-    {
-        "url": "https://10tv.in",
-        "source": "10TV",
-        "default_cat": "తెలంగాణ"
-    }
+    {"url": "https://sakshi.com", "source": "Sakshi", "default_cat": "ఆంధ్రప్రదేశ్"},
+    {"url": "https://sakshi.com", "source": "Sakshi", "default_cat": "తెలంగాణ"},
+    {"url": "https://ntvtelugu.com", "source": "NTV Telugu", "default_cat": "ఆంధ్రప్రదేశ్"},
+    {"url": "https://ntvtelugu.com", "source": "NTV Telugu", "default_cat": "తెలంగాణ"},
+    {"url": "https://tv9telugu.com", "source": "TV9 Telugu", "default_cat": "ఆంధ్రప్రదేశ్"},
+    {"url": "https://tv9telugu.com", "source": "TV9 Telugu", "default_cat": "తెలంగాణ"},
+    {"url": "https://v6velugu.com", "source": "V6 Velugu", "default_cat": "తెలంగాణ"},
+    {"url": "https://v6velugu.com", "source": "V6 Velugu", "default_cat": "ఆంధ్రప్రదేశ్"},
+    {"url": "https://10tv.in", "source": "10TV", "default_cat": "ఆంధ్రప్రదేశ్"},
+    {"url": "https://10tv.in", "source": "10TV", "default_cat": "తెలంగాణ"},
 ]
 
 # ==========================================
@@ -144,6 +93,24 @@ def load_news():
         shutil.copy2(DATA_FILE, backup_file)
         return []
 
+def prune_old_news(news_list):
+    cutoff = datetime.now(IST) - timedelta(days=MAX_AGE_DAYS)
+    kept = []
+    for item in news_list:
+        pub_str = item.get("published_at")
+        if not pub_str:
+            kept.append(item)
+            continue
+        try:
+            dt = datetime.fromisoformat(pub_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=IST)
+            if dt >= cutoff:
+                kept.append(item)
+        except Exception:
+            kept.append(item)
+    return kept
+
 def save_news(news_list):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     temp_file = DATA_FILE + ".tmp"
@@ -171,7 +138,7 @@ def detect_category(text, default_cat):
             return cat
     return default_cat
 
-def clean_image_url(raw_url, base_url="", trusted=False):
+def clean_image_url(raw_url, base_url=""):
     if not raw_url:
         return ""
     url = html.unescape(str(raw_url).strip()).strip("\"'()<>")
@@ -191,19 +158,18 @@ def clean_image_url(raw_url, base_url="", trusted=False):
     return parsed._replace(fragment="").geturl()
 
 def extract_article_links(crawl_result, base_url):
-    """Sakshi, NTV, TV9, V6, 10TV అన్ని సైట్‌ల నుండి ఆర్టికల్ URLs ను ఫిల్టర్ చేస్తుంది."""
     links = []
-    internal_links = crawl_result.links.get("internal", [])
+    internal_links = (crawl_result.links or {}).get("internal", [])
     base_domain = urllib.parse.urlparse(base_url).netloc.replace("www.", "")
 
     skip_words = [
         "/category/", "/tag/", "/tags/", "/author/", "/video", "/videos",
         "/photo", "/photos", "/live-tv", "/epaper", "/gallery", "/web-stories",
-        "/about", "/contact", "/privacy", "/terms"
+        "/about", "/contact", "/privacy", "/terms", "/login", "/search"
     ]
 
     for link_obj in internal_links:
-        href = link_obj.get("href", "")
+        href = link_obj.get("href", "") if isinstance(link_obj, dict) else str(link_obj)
         if not href:
             continue
 
@@ -211,50 +177,72 @@ def extract_article_links(crawl_result, base_url):
         parsed = urllib.parse.urlparse(full_url)
         link_domain = parsed.netloc.replace("www.", "")
 
-        # అదే వెబ్‌సైట్ డొమైన్ అయి ఉండాలి
         if link_domain != base_domain:
             continue
 
         path = parsed.path.rstrip("/")
-        if not path or full_url.rstrip("/") == base_url.rstrip("/"):
+        if not path or len(path) < 8 or full_url.rstrip("/") == base_url.rstrip("/"):
             continue
 
-        # కేటగిరీ, వీడియో, ఫోటో పేజీలను వదిలేయండి
         if any(skip in path.lower() for skip in skip_words):
             continue
 
-        # అసలు ఆర్టికల్ లింక్‌లకు సాధారణంగా పొడవైన స్లగ్ (slug) లేదా ID ఉంటుంది
-        slug = path.split("/")[-1]
-        if len(slug) < 15:
-            continue
-
-        if full_url not in links:
-            links.append(full_url)
+        clean_url = parsed._replace(fragment="").geturl()
+        if clean_url not in links:
+            links.append(clean_url)
         if len(links) >= MAX_LINKS_PER_PAGE:
             break
 
     return links
 
 def extract_clean_content(markdown_text):
-    """Markdown నుండి మెనూలు, యాడ్స్ తీసేసి అసలు వార్త పేరాలను మాత్రమే తీసుకుంటుంది."""
+    if not markdown_text:
+        return ""
     lines = markdown_text.split("\n")
     content_lines = []
     for line in lines:
         line = line.strip()
-        # చిన్న లింక్‌లు, మెనూ ఐటమ్స్, ఇమేజ్ ట్యాగ్‌లను స్కిప్ చేయండి
-        if not line or line.startswith(("*", "-", "#", "!", "[", "|")):
+        if not line or line.startswith(("*", "-", "#", "!", "[", "|", ">")):
             continue
-        if len(line) < 45:
+        if len(line) < 40:
             continue
         content_lines.append(line)
     return "\n\n".join(content_lines)
+
+def extract_title_and_image(result, art_url):
+    md = result.markdown or ""
+    title = ""
+
+    # Markdown H1 heading nundi title teesukundam
+    for line in md.split("\n"):
+        line = line.strip()
+        if line.startswith("# "):
+            candidate = line.lstrip("#").strip()
+            if len(candidate) >= 10:
+                title = candidate
+                break
+
+    # Metadata fallback
+    if not title and isinstance(result.metadata, dict):
+        title = (result.metadata.get("title") or "").strip()
+
+    image_url = ""
+    media_images = (result.media or {}).get("images", []) if isinstance(result.media, dict) else []
+    for img in media_images:
+        src = img.get("src") if isinstance(img, dict) else str(img)
+        cleaned = clean_image_url(src, art_url)
+        if cleaned:
+            image_url = cleaned
+            break
+
+    return title, image_url
 
 # ==========================================
 # MAIN CRAWLER LOGIC
 # ==========================================
 
 async def scrape_news():
-    existing_news = load_news()
+    existing_news = prune_old_news(load_news())
     existing_urls = {item.get("url") for item in existing_news if item.get("url")}
     new_articles = []
 
@@ -263,7 +251,6 @@ async def scrape_news():
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
 
-    # Sakshi, TV9 వంటి భారీ సైట్‌లు లోడ్ అవ్వడానికి 45 సెకన్ల టైమ్-అవుట్
     run_cfg = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         delay_before_return_html=2.5,
@@ -274,15 +261,15 @@ async def scrape_news():
 
     async with AsyncWebCrawler(config=browser_cfg) as crawler:
         for site in DIRECT_WEBSITES:
-            print(f"\n--- Checking Category [{site['source']}]: {site['url']} ---")
+            print(f"\n--- Checking [{site['source']} | {site['default_cat']}]: {site['url']} ---")
             try:
                 cat_result = await crawler.arun(url=site["url"], config=run_cfg)
             except Exception as e:
-                print(f"Error loading category {site['url']}: {e}")
+                print(f"Error loading {site['url']}: {e}")
                 continue
 
             if not cat_result.success:
-                print(f"Failed to load category: {site['url']}")
+                print(f"Failed to load: {site['url']}")
                 continue
 
             article_urls = extract_article_links(cat_result, site["url"])
@@ -290,8 +277,52 @@ async def scrape_news():
 
             added_from_site = 0
             for art_url in article_urls:
-                if art_url in existing_urls:
+                if art_url in existing_urls or any(a["url"] == art_url for a in new_articles):
                     continue
                 if added_from_site >= MAX_NEW_ITEMS_PER_RUN:
                     break
 
+                try:
+                    art_result = await crawler.arun(url=art_url, config=run_cfg)
+                except Exception as e:
+                    print(f"Error crawling article {art_url}: {e}")
+                    continue
+
+                if not art_result.success:
+                    continue
+
+                title, image_url = extract_title_and_image(art_result, art_url)
+                content = extract_clean_content(art_result.markdown or "")
+
+                if not title or len(content) < 100:
+                    continue
+
+                combined_text = f"{title} {content}"
+                if not is_adsense_safe(combined_text):
+                    print(f"Skipped blocked content: {title[:40]}")
+                    continue
+
+                category = detect_category(combined_text, site["default_cat"])
+                now_ist = datetime.now(IST).isoformat()
+
+                article = {
+                    "title": title,
+                    "content": content,
+                    "category": category,
+                    "source": site["source"],
+                    "url": art_url,
+                    "image": image_url,
+                    "published_at": now_ist
+                }
+
+                new_articles.append(article)
+                existing_urls.add(art_url)
+                added_from_site += 1
+                print(f"Added [{category}]: {title[:50]}")
+
+    updated_news = new_articles + existing_news
+    save_news(updated_news)
+    print(f"Done. Added {len(new_articles)} new articles.")
+
+if __name__ == "__main__":
+    asyncio.run(scrape_news())
