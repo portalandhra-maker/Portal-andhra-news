@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal Andhra - News Creator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 720px;
+      margin: 24px auto;
+      padding: 0 16px;
+      background: #f6f7f9;
+      color: #111;
+    }
+    .card {
+      background: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-top: 12px;
+      margin-bottom: 4px;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+    textarea {
+      min-height: 130px;
+    }
+    button {
+      margin-top: 16px;
+      padding: 10px 18px;
+      font-size: 15px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #0b57d0;
+      color: #fff;
+    }
+    button.secondary {
+      background: #2e7d32;
+      margin-left: 8px;
+    }
+    pre {
+      background: #111827;
+      color: #f9fafb;
+      padding: 14px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin-top: 16px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Portal Andhra - News Entry Generator</h2>
+
+    <label>Title (వార్త శీర్షిక)</label>
+    <input id="title" type="text" placeholder="వార్త హెడ్డింగ్ ఇక్కడ రాయండి" />
+
+    <label>Category</label>
+    <select id="category">
+      <option value="ఆంధ్రప్రదేశ్">ఆంధ్రప్రదేశ్</option>
+      <option value="తెలంగాణ">తెలంగాణ</option>
+      <option value="రాజకీయాలు">రాజకీయాలు</option>
+      <option value="సినిమా">సినిమా</option>
+      <option value="క్రీడలు">క్రీడలు</option>
+      <option value="వ్యాపారం">వ్యాపారం</option>
+      <option value="విద్య">విద్య</option>
+      <option value="సాంకేతికత">సాంకేతికత</option>
+      <option value="జాతీయ వార్తలు">జాతీయ వార్తలు</option>
+      <option value="ఇతర వార్తలు">ఇతర వార్తలు</option>
+    </select>
+
+    <label>Image URL (optional)</label>
+    <input id="image" type="text" placeholder="https://example.com/news-photo.jpg" />
+
+    <label>Slug / URL Path (optional)</label>
+    <input id="slug" type="text" placeholder="ap-latest-news-update" />
+
+    <label>Content (పూర్తి వార్త)</label>
+    <textarea id="content" placeholder="పూర్తి వార్త ఇక్కడ రాయండి..."></textarea>
+
+    <button type="button" onclick="generateJSON()">Generate JSON</button>
+    <button type="button" class="secondary" onclick="copyJSON()">Copy JSON</button>
+
+    <pre id="output"></pre>
+  </div>
+
+  <script>
+    function makeSlug(text) {
+      return text
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-") || "news-" + Date.now();
+    }
+
+    function nowIST() {
+      const now = new Date();
+      const istOffset = 5.5 * 60 * 60 * 1000;
+      const istDate = new Date(now.getTime() + istOffset);
+      return istDate.toISOString().replace("Z", "+05:30");
+    }
+
+    function generateJSON() {
+      const title = document.getElementById("title").value.trim();
+      const category = document.getElementById("category").value;
+      const image = document.getElementById("image").value.trim();
+      const rawSlug = document.getElementById("slug").value.trim();
+      const content = document.getElementById("content").value.trim();
+
+      if (!title || !content) {
+        alert("Title mariyu Content tappanisari rayali.");
+        return;
+      }
+
+      const slug = rawSlug ? makeSlug(rawSlug) : "item-" + Date.now();
+      const item = {
+        title: title,
+        content: content,
+        category: category,
+        source: "Portal Andhra",
+        url: "https://portalandhra.com/news/" + slug,
+        image: image,
+        published_at: nowIST()
+      };
+
+      document.getElementById("output").textContent = JSON.stringify(item, null, 2) + ",";
+    }
+
+    function copyJSON() {
+      const text = document.getElementById("output").textContent;
+      if (!text) return;
+      navigator.clipboard.writeText(text);
+      alert("JSON copy ayindi!");
+    }
+  </script>
+</body>
+</html>
