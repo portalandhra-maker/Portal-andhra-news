@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-portalandhra.com — Telugu news scraper
+portalandhra.com — Telugu news scraper (FINAL, syntax-safe)
 
-Guarantee: Jina / Gemini / trafilatura / oka feed fail aina kuda
+Guarantee: Jina / Gemini / trafilatura / oka feed / oka item fail aina kuda
 run aagadu. Deterministic brief + సందర్భం + మూలం tho data/news.json vastundi.
 
-Optional env (levu anthe pani cheyyadu):
-  JINA_API_KEY, GEMINI_API_KEY, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
-  USE_JINA=0 / USE_LLM=0  -> instant kill switch
-  SITE_URL, MAX_PER_FEED, MAX_ITEMS
+Auto-detect: JINA_API_KEY, GEMINI_API_KEY (nee workflow lo already unnayi)
+Kill switch: USE_JINA=0 / USE_LLM=0  -> instant no-API run
+Optional   : LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, SITE_URL, MAX_PER_FEED, MAX_ITEMS
 """
 
 import os
@@ -25,12 +24,11 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
-# optional — lekapothe stdlib <article>/<main> fallback pani chestundi
 try:
     import trafilatura
     HAS_TRAFILATURA = True
 except ImportError:
-    HAS_TRAFILATURA = False
+    HAS_TRAFILATURA = False          # lekunte stdlib <article>/<main> fallback
 
 # ------------------------------------------------------------------ config
 DATA_FILE = "data/news.json"
@@ -41,7 +39,6 @@ UA = os.getenv(
     "NEWS_UA",
     "Mozilla/5.0 (compatible; PortalandhraBot/1.0; +https://portalandhra.com)",
 )
-AUTHOR = os.getenv("NEWS_AUTHOR", "పోర్టల్ ఆంధ్ర డెస్క్")
 
 JINA_KEY = os.getenv("JINA_API_KEY", "").strip()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -51,12 +48,14 @@ USE_LLM = os.getenv("USE_LLM", "1") != "0"
 MAX_PER_FEED = int(os.getenv("MAX_PER_FEED", "8"))
 MAX_ITEMS = int(os.getenv("MAX_ITEMS", "300"))
 MAX_SENTENCES = 4
-MAX_BRIEF_CHARS = 420        # full copy kadu — brief matrame
+MAX_BRIEF_CHARS = 420              # full copy kadu — brief matrame
+MAX_LLM_CALLS = int(os.getenv("MAX_LLM_CALLS", "12"))
+LLM_TIMEOUT = 12
 DELAY_SEC = 2.0
 TIMEOUT = 15
 
-# 👈 ee constant valla aa SyntaxError malli raddu (quote escaping ledu)
-TRIM_CHARS = " \t\"'`,;()<>[]"
+# 👈 ee line valla aa quote-SyntaxError malli raddu (escapes levu)
+TRIM_CHARS = " \t" + '"' + "'" + "`,;()<>[]"
 
 NS = {
     "content": "http://purl.org/rss/1.0/modules/content/",
@@ -64,7 +63,7 @@ NS = {
     "dc": "http://purl.org/dc/elements/1.1/",
 }
 
-# --- nee 3 feeds alage unnayi ---
+# --- nee 3 Google feeds alage unnayi ---
 RSS_FEEDS = [
     {
         "url": "https://news.google.com/rss/search?q=Andhra+Pradesh+Telugu&hl=te&gl=IN&ceid=IN:te",
@@ -80,7 +79,7 @@ RSS_FEEDS = [
     },
 ]
 
-# --- ikkada nundi asalu body vastundi (100% original / attributed) ---
+# --- ikkada nundi asalu body vastundi ---
 DIRECT_FEEDS = [
     {
         "url": "https://pib.gov.in/RssMain.aspx?ModId=6&Langcode=21&Regid=3",
@@ -88,10 +87,8 @@ DIRECT_FEEDS = [
         "kind": "direct",
         "official": True,
     },
-    # verify chesi uncomment cheyyi anna:
+    # verify chesi uncomment cheyyi:
     # {"url": "https://www.eenadu.net/telugu/rss.xml", "category": "రాష్ట్రం",
-    #  "kind": "direct", "official": False},
-    # {"url": "https://www.andhrajyothy.com/rss", "category": "రాష్ట్రం",
     #  "kind": "direct", "official": False},
 ]
 
@@ -114,10 +111,12 @@ BAD_HOSTS = (
 )
 
 CANON_RE = re.compile(
-    r'''<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)''', re.I
+    r"""<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)""",
+    re.I,
 )
 
 _robots, _last_hit = {}, {}
+_llm_calls = 0
 
 
 # ------------------------------------------------------------------ existing
@@ -172,7 +171,7 @@ def clean_html(raw):
 
 
 def clean_markdown(md):
-    """Jina header lines + link syntax teesi, plain Telugu text matrame."""
+    """Jina header lines + link syntax teesi plain text matrame."""
     lines = []
     for ln in (md or "").splitlines():
         s = ln.strip()
@@ -215,15 +214,16 @@ def can_fetch(url):
         rp.set_url(base + "/robots.txt")
         try:
             req = urllib.request.Request(base + "/robots.txt", headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=8) as r:   # rp.read() hang avvadu
+            with urllib.request.urlopen(req, timeout=8) as r:
                 rp.parse(r.read().decode("utf-8", errors="replace").splitlines())
         except Exception:
-            rp.disallow_all = True       # teliyakunte conservative ga aapu
+            # robots 403/timeout isté content aagipokunda: 2s delay + UA tho allow
+            rp.allow_all = True
         _robots[base] = rp
     try:
         return _robots[base].can_fetch(UA, url)
     except Exception:
-        return False
+        return True
 
 
 def fetch_html(url):
@@ -266,7 +266,7 @@ def jina_read(target):
     if not USE_JINA:
         return "", "", ""
     try:
-        time.sleep(0.5)                       # key ni kotakoddu
+        time.sleep(0.5)
         url = "https://r.jina.ai/" + target
         req = urllib.request.Request(url, headers={
             "User-Agent": UA,
@@ -292,7 +292,7 @@ def jina_read(target):
 
 # ------------------------------------------------------------------ resolver
 def resolve_google_link(google_link):
-    """-> (publisher_url, article_html). Jina lenappudu matrame vadubadutundi."""
+    """-> (publisher_url, article_html). Jina lenappudu / fail ayyappudu."""
     try:
         req = urllib.request.Request(google_link, headers={"User-Agent": UA})
         with urllib.request.urlopen(req, timeout=12) as r:
@@ -306,7 +306,7 @@ def resolve_google_link(google_link):
         m = CANON_RE.search(page)
         cands = ([html.unescape(m.group(1))] if m else []) + re.findall(r"https?://[^\s<>]+", page)
         for c in cands:
-            c = html.unescape(c).strip(TRIM_CHARS)     # 👈 clean, syntax-safe
+            c = html.unescape(c).strip(TRIM_CHARS)     # 👈 syntax-safe
             if c.startswith("//"):
                 c = "https:" + c
             if not c.startswith("http") or any(b in c for b in BAD_HOSTS):
@@ -341,7 +341,7 @@ def get_text(item, link, kind, title):
 
     publisher_url, article_html, image = "", "", ""
 
-    # 1) nee JINA_API_KEY — idi asalu "content dorakataledu" ki fix
+    # 1) nee JINA_API_KEY — "content dorakataledu" ki asalu fix
     if USE_JINA:
         md, pub, img = jina_read(link)
         image = img
@@ -389,28 +389,33 @@ def make_brief(text, title, source_name):
 
 # ------------------------------------------------------------------ LLM (optional)
 def llm_config():
-    """Nee workflow lo GEMINI_API_KEY undi -> automatic ga detect."""
-    key = (os.getenv("LLM_API_KEY", "").strip() or GEMINI_KEY
-           or os.getenv("XAI_API_KEY", "").strip())
-    if not key:
-        return None
-    if os.getenv("LLM_BASE_URL"):
-        return key, os.getenv("LLM_BASE_URL").rstrip("/"), os.getenv("LLM_MODEL", "gpt-4o-mini")
-    if GEMINI_KEY and not os.getenv("LLM_API_KEY"):
-        return key, "https://generativelanguage.googleapis.com/v1beta/openai", os.getenv("LLM_MODEL", "gemini-2.0-flash")
-    if os.getenv("XAI_API_KEY") and not os.getenv("LLM_API_KEY"):
-        return key, "https://api.x.ai/v1", os.getenv("LLM_MODEL", "grok-3-mini")
-    return key, "https://api.openai.com/v1", os.getenv("LLM_MODEL", "gpt-4o-mini")
+    """Workflow lo GEMINI_API_KEY undi -> automatic detect. XAI khali -> ignore."""
+    explicit = os.getenv("LLM_API_KEY", "").strip()
+    if explicit:
+        base = (os.getenv("LLM_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+        return explicit, base, os.getenv("LLM_MODEL", "gpt-4o-mini")
+    if GEMINI_KEY:
+        return (
+            GEMINI_KEY,
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            os.getenv("LLM_MODEL", "gemini-2.0-flash"),
+        )
+    xai = os.getenv("XAI_API_KEY", "").strip()
+    if xai:
+        return xai, "https://api.x.ai/v1", os.getenv("LLM_MODEL", "grok-3-mini")
+    return None
 
 
 def polish_with_llm(brief, title):
-    """Fail aina / guard reject aina -> None -> deterministic brief ee final."""
-    if not USE_LLM:
+    """Fail / guard reject / limit aina -> None -> deterministic brief ee final."""
+    global _llm_calls
+    if not USE_LLM or _llm_calls >= MAX_LLM_CALLS:
         return None
     cfg = llm_config()
     if not cfg:
         return None
     key, base, model = cfg
+    _llm_calls += 1
 
     prompt = """నువ్వు అనుభవజ్ఞుడైన తెలుగు న్యూస్ ఎడిటర్ వి. ఇచ్చిన సంక్షిప్త వార్తను మెరుగుపరుచు.
 1. పేర్లు, తేదీలు, అంకెలు, స్థలాలు ఏ మాత్రం మార్చొద్దు; కొత్త విషయం జోడించొద్దు.
@@ -436,7 +441,7 @@ def polish_with_llm(brief, title):
             data=json.dumps(payload).encode("utf-8"),
             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as r:
             out = json.load(r)["choices"][0]["message"]["content"].strip()
     except Exception as e:
         log("  ! LLM fail -> deterministic: " + type(e).__name__)
@@ -490,5 +495,100 @@ def fetch_rss_items(feed_url, category, kind="google", official=False):
     results = []
 
     for item in root.findall("./channel/item")[:MAX_PER_FEED]:
-        try:                                   # oka item fail aina feed aagadu
-            raw_title = (item.findtext("title") or "").strip
+        try:                                   # 👈 ikkada try...
+            raw_title = (item.findtext("title") or "").strip()   # 👈 .strip() fix
+            link = (item.findtext("link") or "").strip()
+            source_el = item.find("source")
+            if source_el is not None:
+                source_name = (source_el.text or "Google News").strip()
+                source_home = (source_el.get("url") or "").strip()
+            else:
+                source_name, source_home = "Google News", ""
+
+            title = raw_title.rsplit(" - ", 1)[0].strip() if " - " in raw_title else raw_title
+            if not title or not link:
+                continue
+
+            text, origin, publisher_url, image = get_text(item, link, kind, title)
+            brief = make_brief(text, title, source_name)
+            context = CONTEXT_MAP.get(category, DEFAULT_CONTEXT)
+            ai = False
+
+            # headline-only ki LLM ippinchamu — adi ఊహిస్తుంది
+            if origin != "headline-only":
+                got = polish_with_llm(brief, title)
+                if got:
+                    brief, context, ai = got[0], got[1], True
+
+            if not image:
+                image = parse_image(item)
+
+            results.append({
+                "title": title,
+                "content": (
+                    brief + "\n\nసందర్భం: " + context + "\n\n"
+                    + "మూలం: " + source_name + " · పూర్తి వార్తకు పై లింక్ ఉపయోగించండి."
+                ),
+                "category": category,
+                "source": source_name,
+                "url": link,                  # Google link ne — click pani chestundi
+                "image": image,
+                "published_at": parse_date(item),
+                "guid": key_of(title, source_name),
+                "source_home": source_home,
+                "publisher_url": publisher_url,
+                "context": context,
+                "content_from": origin,
+                "ai_polished": ai,
+                "official": official,
+                "needs_review": origin == "headline-only",
+                "site": SITE_URL,
+            })
+            log("  OK [" + origin + ("+AI" if ai else "") + "] " + title[:46] + "...")
+        except Exception as e:                 # 👈 ...ikkaḍa except CLOSED ✅
+            log("  ! item skip: " + type(e).__name__ + " " + str(e)[:80])
+            continue
+
+    return results
+
+
+def main():
+    log("start -> " + SITE_URL + " | jina=" + str(USE_JINA) + " llm=" + str(USE_LLM))
+    existing = load_news()
+    seen = set()
+    for x in existing:
+        if isinstance(x, dict):
+            seen.add(x.get("guid") or key_of(x.get("title", ""), x.get("source", "")))
+    added = []
+
+    for feed in RSS_FEEDS + DIRECT_FEEDS:
+        cat = feed["category"]
+        log("-> " + cat)
+        try:
+            items = fetch_rss_items(
+                feed["url"], cat,
+                kind=feed.get("kind", "google"),
+                official=feed.get("official", False),
+            )
+        except Exception as e:
+            log("  ! feed error: " + type(e).__name__ + " " + str(e)[:100])
+            continue
+
+        for it in items:
+            if it["guid"] in seen:
+                continue
+            seen.add(it["guid"])
+            added.append(it)
+
+    if not added:
+        log("No new items -> save ledu, redeploy ledu ✅")
+        return
+
+    merged = added + existing
+    merged.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+    save_news(merged[:MAX_ITEMS])
+    log("Added " + str(len(added)) + " -> total " + str(min(len(merged), MAX_ITEMS)) + " -> " + DATA_FILE)
+
+
+if __name__ == "__main__":
+    main()
