@@ -1,43 +1,70 @@
-name: Auto Scrape & Update News
+name: Portal Andhra - News Scraper
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # Runs every 30 minutes, offset from the top of the hour to reduce scheduling delays.
+    - cron: '7,37 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: portal-andhra-news-scraper
+  cancel-in-progress: false
+
 jobs:
   update-news:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements_portal_andhra.txt
 
       - name: Install dependencies
         run: |
-          pip install crawl4ai beautifulsoup4
-          crawl4ai-setup
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements_portal_andhra.txt
 
-      - name: Run news scraper
+      - name: Check required Gemini secret
         env:
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
-          CRAWL4AI_LLM_PROVIDER: ${{ secrets.CRAWL4AI_LLM_PROVIDER }}
-          CRAWL4AI_LLM_API_KEY: ${{ secrets.CRAWL4AI_LLM_API_KEY }}
-        run: python scraper.py
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY is missing. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
 
-      - name: Commit & Push updated news.json
+      - name: Run Portal Andhra scraper
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
+          USE_GEMINI: '1'
+          DATA_FILE: data/news.json
+          MAX_ITEMS: '100'
+          MAX_PER_SOURCE: '20'
+          MIN_ARTICLE_CHARS: '350'
+          LOG_LEVEL: INFO
+        run: python portal_andhra_scraper.py
+
+      - name: Commit and push updated news
         run: |
           git config user.name "Portal Andhra Bot"
           git config user.email "bot@portalandhra.com"
           git add data/news.json
-          git diff --staged --quiet || git commit -m "Auto-update scraped news"
-          git push
+          if git diff --cached --quiet; then
+            echo "No news changes to commit."
+          else
+            git commit -m "Auto-update Portal Andhra news"
+            git push origin "${GITHUB_REF_NAME}"
+          fi
